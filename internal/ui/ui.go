@@ -402,7 +402,7 @@ func (u *UI) showSettingsDialog() {
 		},
 		{
 			Text: "JSON file filter", Widget: extFilter,
-			HintText: "Wether to show files with .json extension only",
+			HintText: "Whether to show files with .json and .jsonl extensions only",
 		},
 		{
 			Text:   "Notify about updates",
@@ -567,7 +567,7 @@ func (u *UI) openFile() {
 	d.Show()
 	filterEnabled := u.app.Preferences().BoolWithFallback(settingExtensionFilter, settingExtensionDefault)
 	if filterEnabled {
-		f := storage.NewExtensionFileFilter([]string{".json"})
+		f := storage.NewExtensionFileFilter([]string{".json", ".jsonl"})
 		d.SetFilter(f)
 	}
 }

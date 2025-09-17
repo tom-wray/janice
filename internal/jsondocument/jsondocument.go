@@ -2,11 +2,13 @@
 package jsondocument
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -142,12 +144,12 @@ func (j *JSONDocument) Value(uid widget.TreeNodeID) Node {
 	return j.values[id]
 }
 
-// Load loads JSON data from a reader and builds a new JSON document from it.
+// Load loads JSON or JSONL data from a reader and builds a new JSON document from it.
 // It reports it's current progress to the caller via updates to progressInfo.
 // Closes the reader.
 func (j *JSONDocument) Load(ctx context.Context, reader fyne.URIReadCloser, progressInfo binding.Untyped) error {
 	j.progressInfo = progressInfo
-	data, err := j.load(ctx, reader)
+	data, err := j.loadWithFormat(ctx, reader)
 	if errors.Is(err, context.Canceled) {
 		err = ErrCallerCanceled
 	}
@@ -250,6 +252,74 @@ func (j *JSONDocument) load(ctx context.Context, reader io.ReadCloser) (any, err
 		return nil, err
 	}
 	return data, nil
+}
+
+// loadWithFormat loads JSON or JSONL data from a reader based on the filename extension.
+func (j *JSONDocument) loadWithFormat(ctx context.Context, reader fyne.URIReadCloser) (any, error) {
+	defer reader.Close()
+	if err := j.setProgressInfo(ProgressInfo{CurrentStep: 1}); err != nil {
+		return nil, err
+	}
+	
+	// Check if this is a JSONL file based on extension
+	uri := reader.URI()
+	isJSONL := strings.ToLower(filepath.Ext(uri.Name())) == ".jsonl"
+	
+	reader2 := newReaderContext(ctx, reader)
+	
+	if isJSONL {
+		return j.loadJSONL(ctx, reader2)
+	} else {
+		return j.loadJSON(ctx, reader2)
+	}
+}
+
+// loadJSON loads a single JSON document
+func (j *JSONDocument) loadJSON(ctx context.Context, reader io.ReadCloser) (any, error) {
+	var data any
+	dec := json.NewDecoder(reader)
+	if err := dec.Decode(&data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// loadJSONL loads JSONL (JSON Lines) format and returns an array of objects
+func (j *JSONDocument) loadJSONL(ctx context.Context, reader io.ReadCloser) (any, error) {
+	scanner := bufio.NewScanner(reader)
+	var items []any
+	lineNum := 0
+	
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+		
+		// Check for context cancellation periodically
+		if lineNum%1000 == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+		}
+		
+		var item any
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			return nil, fmt.Errorf("error parsing line %d: %w", lineNum, err)
+		}
+		items = append(items, item)
+	}
+	
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading JSONL file: %w", err)
+	}
+	
+	return items, nil
 }
 
 // render is the main method for rendering the JSON data into a tree.

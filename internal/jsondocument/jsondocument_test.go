@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"fyne.io/fyne/v2"
@@ -353,5 +354,140 @@ func makeDataReader(data any) fyne.URIReadCloser {
 		panic(err)
 	}
 	r := bytes.NewReader(x)
-	return jsondocument.MakeURIReadCloser(r, "test")
+	return jsondocument.MakeURIReadCloser(r, "test.json")
+}
+
+func makeJSONLReader(data []any, filename string) fyne.URIReadCloser {
+	var lines []string
+	for _, item := range data {
+		x, err := json.Marshal(item)
+		if err != nil {
+			panic(err)
+		}
+		lines = append(lines, string(x))
+	}
+	content := strings.Join(lines, "\n")
+	r := strings.NewReader(content)
+	return jsondocument.MakeURIReadCloser(r, filename)
+}
+
+func TestJsonDocumentLoadJSONL(t *testing.T) {
+	ctx := context.TODO()
+	var dummy = binding.NewUntyped()
+
+	t.Run("can load JSONL with multiple objects", func(t *testing.T) {
+		// given
+		j := jsondocument.New()
+		data := []any{
+			map[string]any{"name": "Alice", "age": 30},
+			map[string]any{"name": "Bob", "age": 25},
+			map[string]any{"name": "Charlie", "age": 35},
+		}
+		// when
+		err := j.Load(ctx, makeJSONLReader(data, "test.jsonl"), dummy)
+		// then
+		if assert.NoError(t, err) {
+			assert.Equal(t, 10, j.Size()) // root array + 3 objects + 6 fields = 10
+			// Check root is array
+			assert.True(t, j.IsBranch(""))
+			rootNode := j.Value("")
+			assert.Equal(t, jsondocument.Empty, rootNode.Value)
+			assert.Equal(t, jsondocument.Array, rootNode.Type)
+			
+			// Check first item
+			childUIDs := j.ChildUIDs("")
+			assert.Equal(t, 3, len(childUIDs))
+			firstChild := j.Value(childUIDs[0])
+			assert.Equal(t, "[0]", firstChild.Key)
+			assert.Equal(t, jsondocument.Object, firstChild.Type)
+		}
+	})
+
+	t.Run("can load JSONL with mixed data types", func(t *testing.T) {
+		// given
+		j := jsondocument.New()
+		data := []any{
+			"simple string",
+			42,
+			true,
+			map[string]any{"key": "value"},
+			[]any{1, 2, 3},
+		}
+		// when
+		err := j.Load(ctx, makeJSONLReader(data, "mixed.jsonl"), dummy)
+		// then
+		if assert.NoError(t, err) {
+			assert.Equal(t, 10, j.Size()) // root + 5 items + nested structure
+			childUIDs := j.ChildUIDs("")
+			assert.Equal(t, 5, len(childUIDs))
+			
+			// Check string value
+			stringNode := j.Value(childUIDs[0])
+			assert.Equal(t, "[0]", stringNode.Key)
+			assert.Equal(t, "simple string", stringNode.Value)
+			assert.Equal(t, jsondocument.String, stringNode.Type)
+			
+			// Check number value
+			numberNode := j.Value(childUIDs[1])
+			assert.Equal(t, "[1]", numberNode.Key)
+			assert.Equal(t, float64(42), numberNode.Value)
+			assert.Equal(t, jsondocument.Number, numberNode.Type)
+			
+			// Check boolean value
+			boolNode := j.Value(childUIDs[2])
+			assert.Equal(t, "[2]", boolNode.Key)
+			assert.Equal(t, true, boolNode.Value)
+			assert.Equal(t, jsondocument.Boolean, boolNode.Type)
+		}
+	})
+
+	t.Run("can load JSONL with empty lines", func(t *testing.T) {
+		// given
+		j := jsondocument.New()
+		content := `{"name": "Alice"}
+
+{"name": "Bob"}
+
+
+{"name": "Charlie"}`
+		r := strings.NewReader(content)
+		reader := jsondocument.MakeURIReadCloser(r, "test.jsonl")
+		// when
+		err := j.Load(ctx, reader, dummy)
+		// then
+		if assert.NoError(t, err) {
+			assert.Equal(t, 7, j.Size()) // root + 3 objects + 3 name fields
+			childUIDs := j.ChildUIDs("")
+			assert.Equal(t, 3, len(childUIDs))
+		}
+	})
+
+	t.Run("should return error for invalid JSONL line", func(t *testing.T) {
+		// given
+		j := jsondocument.New()
+		content := `{"name": "Alice"}
+invalid json line
+{"name": "Bob"}`
+		r := strings.NewReader(content)
+		reader := jsondocument.MakeURIReadCloser(r, "invalid.jsonl")
+		// when
+		err := j.Load(ctx, reader, dummy)
+		// then
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "error parsing line 2")
+	})
+
+	t.Run("should handle regular JSON file extension correctly", func(t *testing.T) {
+		// given
+		j := jsondocument.New()
+		data := map[string]any{"name": "Alice", "age": 30}
+		// when
+		err := j.Load(ctx, makeDataReader(data), dummy)
+		// then
+		if assert.NoError(t, err) {
+			assert.Equal(t, 3, j.Size()) // root object + 2 fields
+			rootNode := j.Value("")
+			assert.Equal(t, jsondocument.Object, rootNode.Type)
+		}
+	})
 }
