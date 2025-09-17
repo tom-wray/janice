@@ -24,7 +24,7 @@ A desktop app for viewing large JSON files.
 Janice is a desktop app for viewing large JSON files. It's key features are:
 
 - Browse through a JSON document in classic tree structure
-- JSON files can be opened via file dialog, from clipboard, dropped on the window or given as command line argument
+- JSON and JSONL files can be opened via file dialog, from clipboard, dropped on the window or given as command line argument
 - Supports viewing very large JSON files (>100MB, >10M elements)
 - Search for keys and values in the document. Supports wildcards.
 - Export parts of a JSON file into a new file or to clipboard
@@ -112,6 +112,10 @@ For comparison we did a load test on one of our developer notebooks. It has 8 GB
 ### Are JSON files formatted?
 
 Yes. The JSON document is rendered as tree and keys are shown in alphabetical order.
+
+### What is JSONL format?
+
+JSONL (JSON Lines) is a format where each line contains a separate, self-contained, valid JSON object. This format is commonly used for streaming JSON data, logs, and datasets. When you load a JSONL file, Janice will display it as an array where each JSON object from a line becomes an array element in the tree view.
 
 ## Attributions
 
